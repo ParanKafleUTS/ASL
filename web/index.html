@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASL Hand Sign Detection - Real-Time Recognition</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <h1>🤟 ASL Hand Sign Detection</h1>
+            <p class="subtitle">Real-time American Sign Language recognition powered by deep learning</p>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <!-- Camera Section -->
+        <section class="camera-section card">
+            <h2>📷 Live Camera Feed</h2>
+            <div class="video-container">
+                <video id="webcam" autoplay playsinline muted></video>
+                <canvas id="overlay-canvas" class="overlay"></canvas>
+                <div class="camera-status" id="camera-status">
+                    <span class="status-dot"></span>
+                    <span id="status-text">Camera off</span>
+                </div>
+            </div>
+            <div class="camera-controls">
+                <button id="start-btn" class="btn btn-primary" onclick="startCamera()">
+                    ▶ Start Camera
+                </button>
+                <button id="stop-btn" class="btn btn-secondary" onclick="stopCamera()" disabled>
+                    ⏹ Stop
+                </button>
+                <button id="capture-btn" class="btn btn-accent" onclick="captureFrame()" disabled>
+                    📸 Capture
+                </button>
+            </div>
+        </section>
+
+        <!-- Predictions Section -->
+        <section class="predictions-section card">
+            <h2>🔍 Predictions</h2>
+            <div class="main-prediction">
+                <div class="prediction-letter" id="main-prediction">?</div>
+                <div class="prediction-confidence" id="main-confidence">Waiting...</div>
+            </div>
+
+            <div class="top5-section">
+                <h3>Top 5 Predictions</h3>
+                <div id="top5-predictions" class="top5-list">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- Captured frame preview -->
+            <div class="capture-preview" id="capture-preview" style="display:none">
+                <h3>Captured Frame</h3>
+                <canvas id="captured-canvas"></canvas>
+            </div>
+        </section>
+
+        <!-- Model Info -->
+        <section class="model-section card">
+            <h2>🧠 Model Information</h2>
+            <div class="model-selector">
+                <label for="model-select">Select Model:</label>
+                <select id="model-select" onchange="loadSelectedModel()">
+                    <option value="custom_cnn">Custom CNN (Baseline)</option>
+                    <option value="mobilenet">MobileNetV2</option>
+                    <option value="efficientnet">EfficientNetB0</option>
+                    <option value="attention_cnn">Attention CNN</option>
+                    <option value="ensemble">Ensemble</option>
+                </select>
+            </div>
+            <div class="model-stats" id="model-stats">
+                <div class="stat">
+                    <span class="stat-label">Status:</span>
+                    <span class="stat-value" id="model-status">Not loaded</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Inference Time:</span>
+                    <span class="stat-value" id="inference-time">—</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Accuracy:</span>
+                    <span class="stat-value" id="model-accuracy">—</span>
+                </div>
+            </div>
+            <button class="btn btn-primary" onclick="loadSelectedModel()">
+                ⬇ Load Model
+            </button>
+        </section>
+
+        <!-- ASL Reference -->
+        <section class="reference-section card">
+            <h2>📚 ASL Reference Chart</h2>
+            <p class="reference-note">
+                Signs A–Z (J and Z require motion; displayed as static representations)
+            </p>
+            <div class="alphabet-grid" id="alphabet-grid">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- Statistics Dashboard -->
+        <section class="stats-section card">
+            <h2>📊 Session Statistics</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="total-predictions">0</div>
+                    <div class="stat-label">Total Predictions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="avg-confidence">—</div>
+                    <div class="stat-label">Avg Confidence</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="fps-counter">0</div>
+                    <div class="stat-label">FPS</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="most-detected">—</div>
+                    <div class="stat-label">Most Detected</div>
+                </div>
+            </div>
+            <button class="btn btn-secondary" onclick="resetStats()">Reset Stats</button>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>ASL Hand Sign Detection — Postgraduate Research Project | UTS</p>
+        <p>Powered by TensorFlow.js | Dataset: Sign Language MNIST</p>
+    </footer>
+
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
