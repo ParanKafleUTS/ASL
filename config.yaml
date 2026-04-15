@@ -15,9 +15,10 @@ paths:
   metrics: "results/metrics"
 
 data:
-  dataset: "sign-language-mnist"
-  image_size: 28
-  num_classes: 24  # 24 ASL letters (no J or Z)
+  dataset: "jeyasrisenthil/hand-signs-asl-hand-sign-data"
+  image_size: 64
+  channels: 3
+  num_classes: 26  # Auto-detected from directory names; 26 if dataset includes J and Z
   train_split: 0.7
   val_split: 0.15
   test_split: 0.15

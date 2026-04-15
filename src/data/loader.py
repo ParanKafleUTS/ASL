@@ -1,187 +1,211 @@
-"""Data loading and preprocessing for Sign Language MNIST dataset.
+"""Data loading and preprocessing for the ASL hand sign image dataset.
 
-This module handles loading, normalizing, and splitting the ASL dataset.
-It supports the Sign Language MNIST format (CSV files with pixel values).
+This module loads the ``jeyasrisenthil/hand-signs-asl-hand-sign-data`` dataset
+(downloaded with ``kagglehub``) which stores images in a directory hierarchy::
+
+    <data_dir>/
+    ├── Train/          ← or "train/" or flat class folders directly
+    │   ├── A/
+    │   │   ├── img1.jpg
+    │   │   └── ...
+    │   ├── B/
+    │   └── ...
+    └── Test/           ← optional; if absent, a held-out split is created
+        ├── A/
+        └── ...
+
+The loader auto-detects the directory structure and is agnostic to the number
+of classes (24 or 26 letters, depending on the specific dataset version).
 """
 
 import os
 import logging
-from typing import Tuple, Optional, Dict
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.class_weight import compute_class_weight
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 
 logger = logging.getLogger(__name__)
 
-# ASL alphabet labels (no J=9, no Z=25 in static signs)
-ASL_LABELS = [chr(ord('A') + i) for i in range(26) if i not in (9, 25)]
+# Common names for the train/test split sub-folders used by ASL Kaggle datasets
+_TRAIN_DIR_NAMES = ("Train", "train", "training", "asl_alphabet_train")
+_TEST_DIR_NAMES = ("Test", "test", "testing", "asl_alphabet_test")
+
+# Supported image extensions
+_IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
 class ASLDataLoader:
-    """Loads and preprocesses the Sign Language MNIST dataset.
+    """Load and preprocess the ASL hand sign image dataset.
 
-    The Sign Language MNIST dataset contains 28x28 grayscale images of ASL
-    hand signs for letters A-Z (excluding J and Z which require motion).
+    The dataset is expected to live in a directory that contains per-class
+    sub-folders (optionally nested inside a ``Train/`` / ``Test/`` split).
 
     Attributes:
-        data_dir: Path to the directory containing CSV files.
-        image_size: Target image size (default 28x28).
-        num_classes: Number of ASL classes (default 24).
+        data_dir: Root directory of the downloaded dataset.
+        image_size: Images are resized to ``(image_size, image_size)``.
+        color_mode: ``"rgb"`` (default) or ``"grayscale"``.
+        num_classes: Number of ASL classes detected in the dataset.
     """
 
-    def __init__(self, data_dir: str = "data/raw", image_size: int = 28,
-                 num_classes: int = 24):
-        """Initialize the data loader.
+    def __init__(self, data_dir: str = "data/raw",
+                 image_size: int = 64,
+                 color_mode: str = "rgb"):
+        """Initialise the loader.
 
         Args:
-            data_dir: Directory containing sign_mnist_train.csv and sign_mnist_test.csv.
-            image_size: Size of images (assumed square).
-            num_classes: Number of output classes.
+            data_dir: Root directory that was populated by
+                ``data/download_dataset.py``.
+            image_size: Side length (pixels) to resize every image to.
+            color_mode: ``"rgb"`` loads 3-channel images; ``"grayscale"``
+                loads single-channel images.
         """
         self.data_dir = data_dir
         self.image_size = image_size
-        self.num_classes = num_classes
-        self.label_encoder = LabelEncoder()
+        self.color_mode = color_mode.lower()
+
+        self._class_names: Optional[List[str]] = None
         self._class_weights: Optional[Dict[int, float]] = None
 
-    def load_csv(self, filename: str) -> Tuple[np.ndarray, np.ndarray]:
-        """Load images and labels from a Sign Language MNIST CSV file.
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    @property
+    def class_names(self) -> List[str]:
+        """Sorted list of class names (available after ``load_dataset``)."""
+        if self._class_names is None:
+            raise RuntimeError(
+                "class_names is not available until load_dataset() has been called."
+            )
+        return self._class_names
+
+    @property
+    def num_classes(self) -> int:
+        """Number of classes (available after ``load_dataset``)."""
+        return len(self.class_names)
+
+    @property
+    def class_weights(self) -> Optional[Dict[int, float]]:
+        """Class weights for imbalanced datasets (available after ``load_dataset``)."""
+        return self._class_weights
+
+    def get_label_name(self, label_idx: int) -> str:
+        """Return the class name for a numeric label index.
 
         Args:
-            filename: Path to the CSV file.
+            label_idx: Integer class index.
 
         Returns:
-            Tuple of (images, labels) arrays.
+            Corresponding class name string (e.g. ``"A"``).
         """
-        logger.info(f"Loading data from {filename}")
-        df = pd.read_csv(filename)
-
-        labels = df["label"].values
-        pixels = df.drop(columns=["label"]).values
-
-        # Reshape to (N, 28, 28) and normalize to [0, 1]
-        images = pixels.reshape(-1, self.image_size, self.image_size).astype(np.float32)
-        images = images / 255.0
-
-        logger.info(f"Loaded {len(images)} samples with {len(np.unique(labels))} classes")
-        return images, labels
+        names = self.class_names
+        if 0 <= label_idx < len(names):
+            return names[label_idx]
+        return f"Class_{label_idx}"
 
     def load_dataset(self, val_split: float = 0.15
                      ) -> Tuple[Tuple[np.ndarray, np.ndarray],
                                 Tuple[np.ndarray, np.ndarray],
                                 Tuple[np.ndarray, np.ndarray]]:
-        """Load the full dataset and create train/val/test splits.
+        """Load images from the dataset directory and split into train/val/test.
+
+        If the dataset already contains a ``Train/`` and ``Test/`` split the
+        loader respects it (using ``Test/`` as the held-out test set and
+        carving a validation set from ``Train/``).  Otherwise a stratified
+        80 / val_split / (remaining) split is created on-the-fly.
 
         Args:
-            val_split: Fraction of training data to use for validation.
+            val_split: Fraction of *training* data reserved for validation.
 
         Returns:
-            Tuple of ((X_train, y_train), (X_val, y_val), (X_test, y_test)).
+            A tuple ``((X_train, y_train), (X_val, y_val), (X_test, y_test))``
+            where every image array has shape
+            ``(N, image_size, image_size, C)`` and values in ``[0, 1]``.
 
         Raises:
-            FileNotFoundError: If dataset CSV files are not found.
+            FileNotFoundError: If no class directories are found.
         """
-        train_path = os.path.join(self.data_dir, "sign_mnist_train.csv")
-        test_path = os.path.join(self.data_dir, "sign_mnist_test.csv")
-
-        if not os.path.exists(train_path) or not os.path.exists(test_path):
+        if not os.path.isdir(self.data_dir):
             raise FileNotFoundError(
-                f"Dataset not found in {self.data_dir}. "
-                "Run `python data/download_dataset.py` to download."
+                f"Dataset directory not found: '{self.data_dir}'. "
+                "Run `python data/download_dataset.py` first."
             )
 
-        X_train_full, y_train_full = self.load_csv(train_path)
-        X_test, y_test = self.load_csv(test_path)
+        train_root, test_root = self._locate_split_dirs()
 
-        # Stratified split for validation
-        X_train, X_val, y_train, y_val = train_test_split(
-            X_train_full, y_train_full,
-            test_size=val_split,
-            stratify=y_train_full,
-            random_state=42
-        )
+        # Load training (and possibly all) data
+        X_all, y_all = self._load_split(train_root)
 
-        # Expand dims for CNN (add channel dimension)
-        X_train = np.expand_dims(X_train, -1)
-        X_val = np.expand_dims(X_val, -1)
-        X_test = np.expand_dims(X_test, -1)
+        if test_root is not None:
+            # Dataset ships with a dedicated test split
+            X_test, y_test = self._load_split(test_root)
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_all, y_all,
+                test_size=val_split,
+                stratify=y_all,
+                random_state=42,
+            )
+        else:
+            # Create val + test from the single directory
+            test_fraction = 0.15
+            X_tmp, X_test, y_tmp, y_test = train_test_split(
+                X_all, y_all,
+                test_size=test_fraction,
+                stratify=y_all,
+                random_state=42,
+            )
+            relative_val = val_split / (1.0 - test_fraction)
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_tmp, y_tmp,
+                test_size=relative_val,
+                stratify=y_tmp,
+                random_state=42,
+            )
 
-        # Compute class weights for imbalanced datasets
         self._class_weights = self._compute_class_weights(y_train)
 
-        logger.info(f"Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
+        logger.info(
+            f"Splits — Train: {X_train.shape}, Val: {X_val.shape}, "
+            f"Test: {X_test.shape}"
+        )
         return (X_train, y_train), (X_val, y_val), (X_test, y_test)
 
-    def _compute_class_weights(self, y: np.ndarray) -> Dict[int, float]:
-        """Compute class weights to handle class imbalance.
-
-        Args:
-            y: Array of class labels.
-
-        Returns:
-            Dictionary mapping class index to weight.
-        """
-        classes = np.unique(y)
-        weights = compute_class_weight("balanced", classes=classes, y=y)
-        return dict(zip(classes.astype(int), weights))
-
-    @property
-    def class_weights(self) -> Optional[Dict[int, float]]:
-        """Return computed class weights (available after load_dataset)."""
-        return self._class_weights
-
-    def get_label_name(self, label_idx: int) -> str:
-        """Convert numeric label index to ASL letter.
-
-        Args:
-            label_idx: Numeric label (0-23).
-
-        Returns:
-            Corresponding ASL letter.
-        """
-        if 0 <= label_idx < len(ASL_LABELS):
-            return ASL_LABELS[label_idx]
-        return f"Class_{label_idx}"
-
     def visualize_samples(self, X: np.ndarray, y: np.ndarray,
-                          n_samples: int = 24, save_path: Optional[str] = None) -> None:
-        """Visualize a grid of sample images with their labels.
+                          n_samples: int = 24,
+                          save_path: Optional[str] = None) -> None:
+        """Show a grid of sample images with their class labels.
 
         Args:
-            X: Image array of shape (N, H, W) or (N, H, W, 1).
-            y: Label array of shape (N,).
-            n_samples: Number of samples to display.
-            save_path: If provided, save the figure to this path.
+            X: Image array of shape ``(N, H, W, C)``.
+            y: Integer label array of shape ``(N,)``.
+            n_samples: Number of images to display.
+            save_path: If given, the figure is saved to this path.
         """
-        if X.ndim == 4:
-            X = X.squeeze(-1)
-
         n_cols = 6
         n_rows = (n_samples + n_cols - 1) // n_cols
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 2 * n_rows))
 
         indices = np.random.choice(len(X), min(n_samples, len(X)), replace=False)
         for ax, idx in zip(axes.flat, indices):
-            ax.imshow(X[idx], cmap="gray")
-            ax.set_title(self.get_label_name(y[idx]), fontsize=8)
+            img = X[idx]
+            if img.shape[-1] == 1:
+                ax.imshow(img.squeeze(-1), cmap="gray")
+            else:
+                ax.imshow(img)
+            ax.set_title(self.get_label_name(int(y[idx])), fontsize=8)
             ax.axis("off")
 
-        # Turn off any remaining axes
         for ax in axes.flat[len(indices):]:
             ax.axis("off")
 
-        plt.suptitle("Sign Language MNIST Samples", fontsize=12, fontweight="bold")
+        plt.suptitle("ASL Hand Sign Samples", fontsize=12, fontweight="bold")
         plt.tight_layout()
 
         if save_path:
-            dir_name = os.path.dirname(save_path)
-            if dir_name:
-                os.makedirs(dir_name, exist_ok=True)
+            os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
             plt.savefig(save_path, dpi=150, bbox_inches="tight")
             logger.info(f"Sample visualization saved to {save_path}")
         plt.show()
@@ -192,27 +216,205 @@ class ASLDataLoader:
         """Plot the class distribution of a dataset split.
 
         Args:
-            y: Label array.
+            y: Integer label array.
             title: Plot title.
-            save_path: If provided, save the figure to this path.
+            save_path: If given, the figure is saved to this path.
         """
         labels, counts = np.unique(y, return_counts=True)
-        label_names = [self.get_label_name(l) for l in labels]
+        label_names = [self.get_label_name(int(l)) for l in labels]
 
         fig, ax = plt.subplots(figsize=(14, 5))
-        bars = ax.bar(label_names, counts, color="steelblue", edgecolor="black", alpha=0.8)
+        bars = ax.bar(label_names, counts, color="steelblue",
+                      edgecolor="black", alpha=0.8)
         ax.set_xlabel("ASL Sign", fontsize=12)
         ax.set_ylabel("Count", fontsize=12)
         ax.set_title(title, fontsize=14, fontweight="bold")
 
         for bar, count in zip(bars, counts):
-            ax.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height() + 5,
-                    str(count), ha="center", va="bottom", fontsize=8)
+            ax.text(
+                bar.get_x() + bar.get_width() / 2.0,
+                bar.get_height() + 1,
+                str(count), ha="center", va="bottom", fontsize=8,
+            )
 
         plt.tight_layout()
         if save_path:
-            dir_name = os.path.dirname(save_path)
-            if dir_name:
-                os.makedirs(dir_name, exist_ok=True)
+            os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
             plt.savefig(save_path, dpi=150, bbox_inches="tight")
         plt.show()
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _locate_split_dirs(self) -> Tuple[str, Optional[str]]:
+        """Find the train-root and (optional) test-root inside *data_dir*.
+
+        Checks several common subdirectory naming conventions before falling
+        back to treating *data_dir* itself as the class-folder root.
+
+        Returns:
+            ``(train_root, test_root)`` — *test_root* may be ``None``.
+        """
+        # First, check if data_dir itself contains class-level sub-folders
+        if self._has_class_subdirs(self.data_dir):
+            return self.data_dir, None
+
+        # Look for named train/test sub-folders
+        train_root: Optional[str] = None
+        test_root: Optional[str] = None
+        for name in _TRAIN_DIR_NAMES:
+            candidate = os.path.join(self.data_dir, name)
+            if self._has_class_subdirs(candidate):
+                train_root = candidate
+                break
+
+        for name in _TEST_DIR_NAMES:
+            candidate = os.path.join(self.data_dir, name)
+            if self._has_class_subdirs(candidate):
+                test_root = candidate
+                break
+
+        if train_root is not None:
+            return train_root, test_root
+
+        # Try one level deeper (kagglehub sometimes adds a version sub-folder)
+        for entry in sorted(os.listdir(self.data_dir)):
+            sub = os.path.join(self.data_dir, entry)
+            if not os.path.isdir(sub):
+                continue
+            if self._has_class_subdirs(sub):
+                return sub, None
+            for name in _TRAIN_DIR_NAMES:
+                candidate = os.path.join(sub, name)
+                if self._has_class_subdirs(candidate):
+                    train_root = candidate
+                    test_cand = os.path.join(sub, _TEST_DIR_NAMES[0])
+                    test_root = test_cand if self._has_class_subdirs(test_cand) else None
+                    return train_root, test_root
+
+        raise FileNotFoundError(
+            f"Could not find class subdirectories under '{self.data_dir}'. "
+            "Please verify the dataset was downloaded correctly."
+        )
+
+    @staticmethod
+    def _has_class_subdirs(path: str) -> bool:
+        """Return True if *path* is a directory that directly contains sub-folders."""
+        if not os.path.isdir(path):
+            return False
+        return any(
+            os.path.isdir(os.path.join(path, d))
+            for d in os.listdir(path)
+            if not d.startswith(".")
+        )
+
+    def _load_split(self, split_dir: str) -> Tuple[np.ndarray, np.ndarray]:
+        """Load all images from a split directory (which contains class sub-folders).
+
+        Args:
+            split_dir: Path to a directory whose sub-folders are class names.
+
+        Returns:
+            ``(X, y)`` arrays.
+        """
+        class_names = sorted([
+            d for d in os.listdir(split_dir)
+            if os.path.isdir(os.path.join(split_dir, d)) and not d.startswith(".")
+        ])
+
+        if not class_names:
+            raise FileNotFoundError(
+                f"No class subdirectories found in '{split_dir}'."
+            )
+
+        # Record class names from the first split that is loaded
+        if self._class_names is None:
+            self._class_names = class_names
+        else:
+            # Ensure consistency between train and test splits
+            if set(class_names) != set(self._class_names):
+                logger.warning(
+                    "Class names differ between splits. "
+                    f"Using names from training split: {self._class_names}"
+                )
+                # Map test-split names to training-split indices
+                class_names = self._class_names
+
+        logger.info(f"Loading {len(class_names)} classes from '{split_dir}'")
+
+        all_images: List[np.ndarray] = []
+        all_labels: List[int] = []
+
+        for idx, cls in enumerate(class_names):
+            cls_dir = os.path.join(split_dir, cls)
+            if not os.path.isdir(cls_dir):
+                continue
+            imgs = self._load_images_from_dir(cls_dir)
+            all_images.extend(imgs)
+            all_labels.extend([idx] * len(imgs))
+            logger.debug(f"  '{cls}': {len(imgs)} images")
+
+        if not all_images:
+            raise FileNotFoundError(
+                f"No images found under '{split_dir}'. "
+                "Check that the dataset contains supported image files "
+                f"({', '.join(sorted(_IMG_EXTENSIONS))})."
+            )
+
+        X = np.array(all_images, dtype=np.float32)
+        y = np.array(all_labels, dtype=np.int32)
+        logger.info(f"Loaded {len(X)} images, shape {X.shape}")
+        return X, y
+
+    def _load_images_from_dir(self, class_dir: str) -> List[np.ndarray]:
+        """Load all supported image files from *class_dir*.
+
+        Args:
+            class_dir: Directory containing image files for a single class.
+
+        Returns:
+            List of float32 arrays with shape
+            ``(image_size, image_size, C)`` and values in ``[0, 1]``.
+        """
+        try:
+            from PIL import Image as PILImage
+        except ImportError as exc:
+            raise ImportError(
+                "Pillow is required to load image files. "
+                "Run: pip install Pillow"
+            ) from exc
+
+        images: List[np.ndarray] = []
+        for fname in sorted(os.listdir(class_dir)):
+            if os.path.splitext(fname)[1].lower() not in _IMG_EXTENSIONS:
+                continue
+            fpath = os.path.join(class_dir, fname)
+            try:
+                with PILImage.open(fpath) as img:
+                    img = img.convert("L" if self.color_mode == "grayscale" else "RGB")
+                    img = img.resize(
+                        (self.image_size, self.image_size), PILImage.BILINEAR
+                    )
+                    arr = np.array(img, dtype=np.float32) / 255.0
+                    if self.color_mode == "grayscale":
+                        arr = np.expand_dims(arr, axis=-1)  # (H, W, 1)
+                images.append(arr)
+            except Exception as exc:
+                logger.warning(f"Skipping '{fpath}': {exc}")
+
+        return images
+
+    @staticmethod
+    def _compute_class_weights(y: np.ndarray) -> Dict[int, float]:
+        """Compute balanced class weights to mitigate class imbalance.
+
+        Args:
+            y: Integer label array.
+
+        Returns:
+            Dict mapping class index to weight.
+        """
+        classes = np.unique(y)
+        weights = compute_class_weight("balanced", classes=classes, y=y)
+        return dict(zip(classes.astype(int), weights))

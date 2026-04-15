@@ -98,74 +98,128 @@ class TestASLDataUtils(unittest.TestCase):
 
 
 class TestASLDataLoader(unittest.TestCase):
-    """Tests for src/data/loader.py (using mock data)."""
+    """Tests for src/data/loader.py (using mock image-folder data)."""
 
-    def _create_mock_csv(self, tmpdir: str, filename: str,
-                          n_samples: int = 100, num_classes: int = 24) -> str:
-        """Create a mock Sign Language MNIST CSV file."""
-        import pandas as pd
-        labels = np.random.randint(0, num_classes, size=n_samples)
-        pixels = np.random.randint(0, 256,
-                                   size=(n_samples, 28 * 28)).astype(np.int32)
-        df = pd.DataFrame(pixels, columns=[f"pixel{i}" for i in range(28 * 28)])
-        df.insert(0, "label", labels)
-        filepath = os.path.join(tmpdir, filename)
-        df.to_csv(filepath, index=False)
-        return filepath
+    def _create_mock_dataset(self, tmpdir: str,
+                              split_name: str = "",
+                              class_names: tuple = ("A", "B", "C"),
+                              n_per_class: int = 10,
+                              img_size: int = 16) -> str:
+        """Create a mock dataset directory with PNG images per class.
 
-    def test_load_csv(self):
-        """Test loading images and labels from CSV."""
+        Args:
+            tmpdir: Temporary root directory.
+            split_name: Sub-folder name (e.g. "Train"), or "" for flat structure.
+            class_names: Sequence of class folder names.
+            n_per_class: Number of images per class.
+            img_size: Side length of generated images (pixels).
+
+        Returns:
+            Path to the directory containing class sub-folders.
+        """
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not installed")
+
+        root = os.path.join(tmpdir, split_name) if split_name else tmpdir
+        for cls in class_names:
+            cls_dir = os.path.join(root, cls)
+            os.makedirs(cls_dir, exist_ok=True)
+            for i in range(n_per_class):
+                arr = np.random.randint(0, 256, (img_size, img_size, 3), dtype=np.uint8)
+                Image.fromarray(arr, mode="RGB").save(
+                    os.path.join(cls_dir, f"img_{i:04d}.png")
+                )
+        return root
+
+    def test_load_dataset_flat_structure(self):
+        """load_dataset works when class folders sit directly in data_dir."""
         from src.data.loader import ASLDataLoader
         with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = self._create_mock_csv(tmpdir, "sign_mnist_train.csv")
-            loader = ASLDataLoader(data_dir=tmpdir)
-            images, labels = loader.load_csv(filepath)
-            self.assertEqual(images.shape, (100, 28, 28))
-            self.assertEqual(len(labels), 100)
-            self.assertTrue(images.max() <= 1.0)
-            self.assertTrue(images.min() >= 0.0)
-
-    def test_load_dataset_split(self):
-        """Test that load_dataset creates proper train/val/test splits."""
-        from src.data.loader import ASLDataLoader
-        with tempfile.TemporaryDirectory() as tmpdir:
-            self._create_mock_csv(tmpdir, "sign_mnist_train.csv", n_samples=200)
-            self._create_mock_csv(tmpdir, "sign_mnist_test.csv", n_samples=50)
-            loader = ASLDataLoader(data_dir=tmpdir)
+            self._create_mock_dataset(tmpdir, split_name="",
+                                      class_names=("A", "B", "C", "D"),
+                                      n_per_class=20)
+            loader = ASLDataLoader(data_dir=tmpdir, image_size=16, color_mode="rgb")
             (X_tr, y_tr), (X_v, y_v), (X_te, y_te) = loader.load_dataset(val_split=0.15)
-            # Check shapes
-            self.assertEqual(X_tr.ndim, 4)  # (N, 28, 28, 1)
-            self.assertEqual(X_v.ndim, 4)
-            self.assertEqual(X_te.ndim, 4)
-            # Check normalization
+
+            self.assertEqual(X_tr.ndim, 4)           # (N, 16, 16, 3)
+            self.assertEqual(X_tr.shape[1], 16)
+            self.assertEqual(X_tr.shape[3], 3)
             self.assertTrue(X_tr.max() <= 1.0)
+            self.assertTrue(X_tr.min() >= 0.0)
+
+    def test_load_dataset_train_test_split(self):
+        """load_dataset respects an existing Train/Test directory split."""
+        from src.data.loader import ASLDataLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._create_mock_dataset(tmpdir, split_name="Train",
+                                      class_names=("A", "B", "C"),
+                                      n_per_class=20)
+            self._create_mock_dataset(tmpdir, split_name="Test",
+                                      class_names=("A", "B", "C"),
+                                      n_per_class=5)
+            loader = ASLDataLoader(data_dir=tmpdir, image_size=16)
+            (X_tr, y_tr), (X_v, y_v), (X_te, y_te) = loader.load_dataset()
+
+            # Test set should come from the dedicated Test/ folder
+            self.assertEqual(X_te.shape[0], 15)  # 3 classes × 5 images
+            self.assertEqual(X_tr.ndim, 4)
+
+    def test_class_names_detected(self):
+        """class_names is populated correctly after load_dataset."""
+        from src.data.loader import ASLDataLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._create_mock_dataset(tmpdir, class_names=("A", "B", "C"), n_per_class=10)
+            loader = ASLDataLoader(data_dir=tmpdir, image_size=16)
+            loader.load_dataset()
+            self.assertEqual(loader.class_names, ["A", "B", "C"])
+            self.assertEqual(loader.num_classes, 3)
 
     def test_class_weights_computed(self):
-        """Test that class weights are computed after loading dataset."""
+        """class_weights is populated after load_dataset."""
         from src.data.loader import ASLDataLoader
         with tempfile.TemporaryDirectory() as tmpdir:
-            self._create_mock_csv(tmpdir, "sign_mnist_train.csv", n_samples=200)
-            self._create_mock_csv(tmpdir, "sign_mnist_test.csv", n_samples=50)
-            loader = ASLDataLoader(data_dir=tmpdir)
+            self._create_mock_dataset(tmpdir, class_names=("A", "B", "C"), n_per_class=15)
+            loader = ASLDataLoader(data_dir=tmpdir, image_size=16)
             loader.load_dataset()
             self.assertIsNotNone(loader.class_weights)
             self.assertIsInstance(loader.class_weights, dict)
 
-    def test_missing_file_raises(self):
-        """Test that FileNotFoundError is raised for missing dataset."""
+    def test_missing_dir_raises(self):
+        """FileNotFoundError is raised when data_dir does not exist."""
         from src.data.loader import ASLDataLoader
         loader = ASLDataLoader(data_dir="/nonexistent/path")
         with self.assertRaises(FileNotFoundError):
             loader.load_dataset()
 
     def test_get_label_name(self):
-        """Test label index to ASL letter conversion."""
+        """get_label_name returns the correct class string."""
         from src.data.loader import ASLDataLoader
-        loader = ASLDataLoader()
-        self.assertEqual(loader.get_label_name(0), "A")
-        self.assertEqual(loader.get_label_name(1), "B")
-        # Label 9 should be 'K' (skipping J=9 in ASL labels)
-        self.assertEqual(loader.get_label_name(9), "K")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._create_mock_dataset(tmpdir, class_names=("A", "B", "C"), n_per_class=5)
+            loader = ASLDataLoader(data_dir=tmpdir, image_size=8)
+            loader.load_dataset()
+            self.assertEqual(loader.get_label_name(0), "A")
+            self.assertEqual(loader.get_label_name(1), "B")
+            self.assertEqual(loader.get_label_name(2), "C")
+
+    def test_grayscale_mode(self):
+        """color_mode='grayscale' produces single-channel images."""
+        from src.data.loader import ASLDataLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._create_mock_dataset(tmpdir, class_names=("A", "B"), n_per_class=10)
+            loader = ASLDataLoader(data_dir=tmpdir, image_size=16,
+                                   color_mode="grayscale")
+            (X_tr, _), _, _ = loader.load_dataset()
+            self.assertEqual(X_tr.shape[-1], 1)
+
+    def test_class_names_not_available_before_load(self):
+        """Accessing class_names before load_dataset raises RuntimeError."""
+        from src.data.loader import ASLDataLoader
+        loader = ASLDataLoader(data_dir="data/raw")
+        with self.assertRaises(RuntimeError):
+            _ = loader.class_names
 
 
 class TestASLAugmentor(unittest.TestCase):
