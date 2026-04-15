@@ -63,24 +63,41 @@ pip install -e .
 
 ## 5. Download the Dataset
 
-Register on [Kaggle](https://www.kaggle.com) and place your `kaggle.json` credentials at `~/.kaggle/kaggle.json`, then run:
+This project uses the **ASL Alphabet** dataset by grassknoted on Kaggle.
+Download it with `kagglehub` (no manual credentials file required):
 
 ```bash
 python data/download_dataset.py
 ```
 
-Alternatively, download manually:
-1. Go to https://www.kaggle.com/datamunge/sign-language-mnist
-2. Download `sign-language-mnist.zip`
-3. Extract into `data/raw/`
+`kagglehub` will prompt for your Kaggle credentials on first use and cache them automatically.
 
-Expected structure after extraction:
+Alternatively you can download directly in Python:
+
+```python
+import kagglehub
+path = kagglehub.dataset_download("grassknoted/asl-alphabet")
+print("Path to dataset files:", path)
+```
+
+Expected structure after download (copied into `data/raw/`):
 
 ```
 data/raw/
-├── sign_mnist_train.csv
-└── sign_mnist_test.csv
+└── asl_alphabet_train/
+    └── asl_alphabet_train/
+        ├── A/        (≈3 000 images)
+        ├── B/
+        ├── ...
+        ├── Z/
+        ├── del/
+        ├── nothing/
+        └── space/
 ```
+
+> **Note:** The dataset contains **29 classes** — the 26 ASL letters (A–Z,
+> including J and Z as static poses) plus `del`, `nothing`, and `space`.
+> Each class has approximately 3 000 colour images at 200 × 200 pixels.
 
 ## 6. Verify Installation
 
@@ -95,7 +112,7 @@ python -m pytest tests/ -v --tb=short
 |-------|-----|
 | `ModuleNotFoundError: tensorflow` | Run `pip install tensorflow` |
 | CUDA out of memory | Reduce `batch_size` in `config.yaml` |
-| `kaggle: command not found` | Run `pip install kaggle` |
+| `kagglehub: command not found` | Run `pip install kagglehub` |
 | OpenCV camera issues | Install `pip install opencv-python-headless` |
 
 ## Environment Variables

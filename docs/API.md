@@ -8,27 +8,36 @@
 
 ### `ASLDataLoader`
 
-Loads and preprocesses the Sign Language MNIST dataset.
+Loads and preprocesses the ASL Alphabet image dataset (`grassknoted/asl-alphabet`).
+Images are read from a directory hierarchy where each sub-folder is a class label.
+The loader auto-detects flat, single-nested, and doubly-nested layouts
+(e.g. `asl_alphabet_train/asl_alphabet_train/{class}/`).
 
 ```python
 from src.data.loader import ASLDataLoader
 
-loader = ASLDataLoader(data_dir='data/raw', img_size=28, normalize=True)
-X_train, X_val, X_test, y_train, y_val, y_test = loader.load_and_split(
-    val_size=0.1, test_size=0.1, random_state=42
-)
+loader = ASLDataLoader(data_dir='data/raw', image_size=64, color_mode='rgb')
+(X_train, y_train), (X_val, y_val), (X_test, y_test) = loader.load_dataset(val_split=0.15)
 ```
 
 **Parameters:**
-- `data_dir` (str): Path to directory containing CSV files.
-- `img_size` (int): Image side length in pixels. Default `28`.
-- `normalize` (bool): Scale pixel values to [0, 1]. Default `True`.
+- `data_dir` (str): Root directory populated by `data/download_dataset.py`.
+- `image_size` (int): Images are resized to `(image_size, image_size)`. Default `64`.
+- `color_mode` (str): `"rgb"` (3 channels, default) or `"grayscale"` (1 channel).
+
+**Properties:**
+- `class_names` → `List[str]` — Sorted list of class names (available after `load_dataset`).
+- `num_classes` → `int` — Number of detected classes.
+- `class_weights` → `dict` — Balanced weights for imbalanced classes.
 
 **Methods:**
-- `load_and_split(val_size, test_size, random_state)` → `(X_train, X_val, X_test, y_train, y_val, y_test)`
-- `plot_class_distribution(y)` — Bar chart of class counts.
-- `visualize_samples(X, y, n_samples)` — Grid of sample images.
-- `get_class_weights(y)` → `dict` — Weights for imbalanced classes.
+- `load_dataset(val_split)` → `((X_train, y_train), (X_val, y_val), (X_test, y_test))`
+- `get_label_name(label_idx)` → `str`
+- `visualize_samples(X, y, n_samples, save_path)` — Grid of sample images.
+- `visualize_class_distribution(y, title, save_path)` — Bar chart of class counts.
+
+**Dataset classes (29 total):**
+`A B C D E F G H I J K L M N O P Q R S T U V W X Y Z del nothing space`
 
 ---
 

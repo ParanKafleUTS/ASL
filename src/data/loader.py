@@ -30,8 +30,10 @@ import matplotlib.pyplot as plt
 logger = logging.getLogger(__name__)
 
 # Common names for the train/test split sub-folders used by ASL Kaggle datasets
-_TRAIN_DIR_NAMES = ("Train", "train", "training", "asl_alphabet_train")
-_TEST_DIR_NAMES = ("Test", "test", "testing", "asl_alphabet_test")
+_TRAIN_DIR_NAMES = ("Train", "train", "training",
+                    "asl_alphabet_train", "asl_alphabet_train/asl_alphabet_train")
+_TEST_DIR_NAMES = ("Test", "test", "testing",
+                   "asl_alphabet_test", "asl_alphabet_test/asl_alphabet_test")
 
 # Supported image extensions
 _IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
@@ -250,64 +252,92 @@ class ASLDataLoader:
     def _locate_split_dirs(self) -> Tuple[str, Optional[str]]:
         """Find the train-root and (optional) test-root inside *data_dir*.
 
-        Checks several common subdirectory naming conventions before falling
-        back to treating *data_dir* itself as the class-folder root.
+        Uses ``_is_class_root`` / ``_find_class_root`` to distinguish actual
+        class directories (which contain image files) from split-level
+        directories (e.g. ``Train/``, ``asl_alphabet_train/``), so the logic
+        works for both flat and doubly-nested dataset layouts.
 
         Returns:
             ``(train_root, test_root)`` — *test_root* may be ``None``.
         """
-        # First, check if data_dir itself contains class-level sub-folders
-        if self._has_class_subdirs(self.data_dir):
-            return self.data_dir, None
-
-        # Look for named train/test sub-folders
         train_root: Optional[str] = None
         test_root: Optional[str] = None
+
+        # 1. Try named train directories first
         for name in _TRAIN_DIR_NAMES:
             candidate = os.path.join(self.data_dir, name)
-            if self._has_class_subdirs(candidate):
-                train_root = candidate
-                break
+            if os.path.isdir(candidate):
+                root = self._find_class_root(candidate)
+                if root is not None:
+                    train_root = root
+                    break
 
+        # 2. Try named test directories
         for name in _TEST_DIR_NAMES:
             candidate = os.path.join(self.data_dir, name)
-            if self._has_class_subdirs(candidate):
-                test_root = candidate
-                break
+            if os.path.isdir(candidate):
+                root = self._find_class_root(candidate)
+                if root is not None:
+                    test_root = root
+                    break
 
-        if train_root is not None:
-            return train_root, test_root
+        # 3. Fall back: search from data_dir itself (flat layout)
+        if train_root is None:
+            root = self._find_class_root(self.data_dir)
+            if root is not None:
+                train_root = root
 
-        # Try one level deeper (kagglehub sometimes adds a version sub-folder)
-        for entry in sorted(os.listdir(self.data_dir)):
-            sub = os.path.join(self.data_dir, entry)
-            if not os.path.isdir(sub):
-                continue
-            if self._has_class_subdirs(sub):
-                return sub, None
-            for name in _TRAIN_DIR_NAMES:
-                candidate = os.path.join(sub, name)
-                if self._has_class_subdirs(candidate):
-                    train_root = candidate
-                    test_cand = os.path.join(sub, _TEST_DIR_NAMES[0])
-                    test_root = test_cand if self._has_class_subdirs(test_cand) else None
-                    return train_root, test_root
+        if train_root is None:
+            raise FileNotFoundError(
+                f"Could not find class subdirectories under '{self.data_dir}'. "
+                "Please verify the dataset was downloaded correctly."
+            )
 
-        raise FileNotFoundError(
-            f"Could not find class subdirectories under '{self.data_dir}'. "
-            "Please verify the dataset was downloaded correctly."
-        )
+        return train_root, test_root
 
     @staticmethod
-    def _has_class_subdirs(path: str) -> bool:
-        """Return True if *path* is a directory that directly contains sub-folders."""
+    def _is_class_root(path: str) -> bool:
+        """Return True if *path* is a directory whose sub-folders contain image files.
+
+        This distinguishes a genuine class-root (e.g. ``Train/``, which has
+        ``A/``, ``B/`` … each holding ``.jpg`` files) from an intermediate
+        split wrapper (e.g. ``asl_alphabet_train/`` whose only child is another
+        directory, not images).
+        """
         if not os.path.isdir(path):
             return False
-        return any(
-            os.path.isdir(os.path.join(path, d))
-            for d in os.listdir(path)
-            if not d.startswith(".")
-        )
+        for entry in os.listdir(path):
+            if entry.startswith("."):
+                continue
+            sub = os.path.join(path, entry)
+            if not os.path.isdir(sub):
+                continue
+            # A valid class dir must contain at least one image file
+            for fname in os.listdir(sub):
+                if os.path.splitext(fname)[1].lower() in _IMG_EXTENSIONS:
+                    return True
+        return False
+
+    @staticmethod
+    def _find_class_root(directory: str, max_depth: int = 4) -> Optional[str]:
+        """Recursively find the first descendant directory that is a class root.
+
+        Performs a depth-first search starting from *directory*, stopping at
+        *max_depth* levels.  Returns ``None`` if no class root is found.
+        """
+        if ASLDataLoader._is_class_root(directory):
+            return directory
+        if max_depth <= 0:
+            return None
+        for entry in sorted(os.listdir(directory)):
+            if entry.startswith("."):
+                continue
+            sub = os.path.join(directory, entry)
+            if os.path.isdir(sub):
+                result = ASLDataLoader._find_class_root(sub, max_depth - 1)
+                if result is not None:
+                    return result
+        return None
 
     def _load_split(self, split_dir: str) -> Tuple[np.ndarray, np.ndarray]:
         """Load all images from a split directory (which contains class sub-folders).

@@ -15,10 +15,10 @@ paths:
   metrics: "results/metrics"
 
 data:
-  dataset: "jeyasrisenthil/hand-signs-asl-hand-sign-data"
+  dataset: "grassknoted/asl-alphabet"
   image_size: 64
   channels: 3
-  num_classes: 26  # Auto-detected from directory names; 26 if dataset includes J and Z
+  num_classes: 29  # A–Z (26) + del + nothing + space
   train_split: 0.7
   val_split: 0.15
   test_split: 0.15

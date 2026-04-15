@@ -14,6 +14,14 @@ After completing [installation](INSTALLATION.md), you can train and evaluate mod
 python data/download_dataset.py
 ```
 
+Or directly in Python:
+
+```python
+import kagglehub
+path = kagglehub.dataset_download("grassknoted/asl-alphabet")
+print("Path to dataset files:", path)
+```
+
 ### Explore the Data
 
 ```bash
@@ -26,8 +34,8 @@ Or programmatically:
 from src.data.loader import ASLDataLoader
 
 loader = ASLDataLoader(data_dir='data/raw')
-X_train, X_val, X_test, y_train, y_val, y_test = loader.load_and_split()
-loader.plot_class_distribution(y_train)
+(X_train, y_train), (X_val, y_val), (X_test, y_test) = loader.load_dataset()
+loader.visualize_class_distribution(y_train)
 loader.visualize_samples(X_train, y_train)
 ```
 
@@ -84,7 +92,6 @@ evaluator = ModelEvaluator(model, class_names=loader.class_names)
 report = evaluator.full_report(X_test, y_test)
 print(report)
 ```
-
 ### Ablation Study
 
 ```bash

@@ -32,12 +32,14 @@ MediaPipe has known compatibility issues with certain Python/TensorFlow versions
 
 This makes the pipeline more self-contained and reproducible without external binary dependencies.
 
-### Why Sign Language MNIST?
+### Why ASL Alphabet (grassknoted)?
 
-- Publicly available on Kaggle, no license barriers.
-- Standardized 28×28 grayscale images — easy to benchmark.
-- 24 classes (A–Z excluding J and Z, which require motion).
-- Widely used in research, enabling direct comparison with published results.
+- **87,000 images** of real hands at 200 × 200 pixels — far richer than MNIST-style pixel arrays.
+- **29 classes**: all 26 ASL letters (including J and Z as static poses) plus `del`, `nothing`, and `space`.
+- Publicly available via `kagglehub` with a single line of code; no manual credential file needed.
+- Colour images allow transfer learning from ImageNet-pretrained models without greyscale conversion.
+- Wider variety of hand shapes, skin tones, and lighting conditions → better real-world generalisability.
+- Download: `kagglehub.dataset_download("grassknoted/asl-alphabet")`
 
 ### Why Graph Neural Networks?
 
@@ -94,13 +96,13 @@ Hand keypoints form a natural graph (anatomical connections between finger joint
 
 ## Expected Results (Literature Baselines)
 
-| Model | Expected Accuracy (Sign MNIST) |
-|-------|-------------------------------|
-| Simple CNN | 92–95% |
-| MobileNetV2 (fine-tuned) | 96–98% |
-| EfficientNetB0 | 97–99% |
-| GCN on skeleton | 88–94% |
-| Ensemble | 97–99% |
+| Model | Expected Accuracy (ASL Alphabet) |
+|-------|----------------------------------|
+| Simple CNN | 90–94% |
+| MobileNetV2 (fine-tuned) | 95–98% |
+| EfficientNetB0 | 96–99% |
+| GCN on skeleton | 85–92% |
+| Ensemble | 96–99% |
 
 *Note: Actual results will vary. GCN accuracy depends on keypoint extraction quality.*
 
@@ -110,8 +112,8 @@ Hand keypoints form a natural graph (anatomical connections between finger joint
 
 | Challenge | Mitigation |
 |-----------|-----------|
-| J and Z require motion | Excluded from dataset (static-only task) |
-| Similar signs (M/N, R/U) | Per-class analysis + attention mechanisms |
+| `del`, `nothing`, `space` may skew metrics | Per-class F1 + confusion matrix analysis |
+| Similar signs (M/N, R/U) | Attention mechanisms + per-class analysis |
 | Small dataset for GCN | Data augmentation + dropout |
 | Web model size | Model quantization + TF.js conversion |
 | Reproducibility | Fixed random seeds (42 throughout) |
@@ -134,4 +136,4 @@ Hand keypoints form a natural graph (anatomical connections between finger joint
 2. Howard, A. et al. (2017). MobileNets: Efficient Convolutional Neural Networks for Mobile Vision Applications.
 3. Tan, M., & Le, Q. (2019). EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks. *ICML*.
 4. Hu, J. et al. (2018). Squeeze-and-Excitation Networks. *CVPR*.
-5. Jochen, T. (2018). Sign Language MNIST. *Kaggle Dataset*.
+5. grassknoted (2018). ASL Alphabet. *Kaggle Dataset*. https://www.kaggle.com/grassknoted/asl-alphabet

@@ -9,7 +9,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-DATASET_ID = "jeyasrisenthil/hand-signs-asl-hand-sign-data"
+DATASET_ID = "grassknoted/asl-alphabet"
 
 
 def download_dataset(output_dir: str = "data/raw") -> str:
