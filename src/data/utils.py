@@ -62,7 +62,9 @@ def save_pickle(obj: Any, path: str) -> None:
         obj: Object to serialize.
         path: File path to save to.
     """
-    os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
+    dir_name = os.path.dirname(path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     with open(path, "wb") as f:
         pickle.dump(obj, f)
     logger.info(f"Saved object to {path}")

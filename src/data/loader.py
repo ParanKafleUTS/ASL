@@ -179,7 +179,9 @@ class ASLDataLoader:
         plt.tight_layout()
 
         if save_path:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            dir_name = os.path.dirname(save_path)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
             plt.savefig(save_path, dpi=150, bbox_inches="tight")
             logger.info(f"Sample visualization saved to {save_path}")
         plt.show()
@@ -209,6 +211,8 @@ class ASLDataLoader:
 
         plt.tight_layout()
         if save_path:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            dir_name = os.path.dirname(save_path)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
             plt.savefig(save_path, dpi=150, bbox_inches="tight")
         plt.show()
