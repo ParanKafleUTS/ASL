@@ -1,21 +1,20 @@
 """Data loading and preprocessing for the ASL hand sign image dataset.
 
-This module loads the ``jeyasrisenthil/hand-signs-asl-hand-sign-data`` dataset
+This module loads the ``grassknoted/asl-alphabet`` dataset
 (downloaded with ``kagglehub``) which stores images in a directory hierarchy::
 
     <data_dir>/
-    ├── Train/          ← or "train/" or flat class folders directly
-    │   ├── A/
-    │   │   ├── img1.jpg
-    │   │   └── ...
-    │   ├── B/
-    │   └── ...
-    └── Test/           ← optional; if absent, a held-out split is created
-        ├── A/
-        └── ...
+    ├── asl_alphabet_train/
+    │   └── asl_alphabet_train/
+    │       ├── A/
+    │       │   ├── A1.jpg
+    │       │   └── ...
+    │       ├── B/
+    │       └── ...
+    └── asl_alphabet_test/   ← optional
 
-The loader auto-detects the directory structure and is agnostic to the number
-of classes (24 or 26 letters, depending on the specific dataset version).
+The loader auto-detects flat, single-nested, and doubly-nested layouts and is
+agnostic to the number of classes (29 for A–Z + del/nothing/space).
 """
 
 import os
